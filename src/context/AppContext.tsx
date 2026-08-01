@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import confetti from 'canvas-confetti';
 import { Task, Mission, Habit, Settings, WeeklyStats, FilterOptions, TaskStatus, Priority, FocusSession } from '../types';
 import { ElectronAPI } from '../../electron/preload';
+import * as lsService from '../services/localStorageService';
 
 declare global {
   interface Window {
@@ -123,6 +124,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // Perform daily reset check
       await window.electronAPI.performDailyResetIfNeeded();
+    } else {
+      // ── Web / Vercel fallback: use localStorage ──
+      const fetchedTasks = lsService.getTasks();
+      const fetchedMissions = lsService.getMissions();
+      const fetchedHabits = lsService.getHabits();
+      const fetchedSettings = lsService.getSettings();
+      const fetchedStats = lsService.getWeeklyStats();
+
+      setTasks(fetchedTasks || []);
+      setMissions(fetchedMissions || []);
+      setHabits(fetchedHabits || []);
+      setSettings(fetchedSettings);
+      setStats(fetchedStats);
+
+      lsService.performDailyResetIfNeeded();
     }
   }, []);
 
@@ -188,9 +204,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const updated = { ...activeTask, actual_seconds: timerSeconds };
       if (window.electronAPI) {
         window.electronAPI.updateTask(updated);
+      } else {
+        lsService.updateTask(updated);
       }
     }
   }, [timerSeconds, isTimerRunning, activeTask]);
+
+  // ── Auto-move overdue tasks to Pending ──────────────────────────────────
+  // Runs once on mount: any non-completed task whose scheduled_date is before
+  // today gets moved to Pending (scheduled_date = null).
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0];
+    setTasks(prev => {
+      const updated: Task[] = [];
+      let changed = false;
+
+      prev.forEach(t => {
+        if (
+          t.scheduled_date &&
+          t.scheduled_date < today &&
+          t.status !== 'completed'
+        ) {
+          const movedTask = { ...t, scheduled_date: null };
+          // Persist the change
+          if (window.electronAPI) {
+            window.electronAPI.updateTask(movedTask);
+          } else {
+            lsService.updateTask(movedTask);
+          }
+          updated.push(movedTask);
+          changed = true;
+        } else {
+          updated.push(t);
+        }
+      });
+
+      return changed ? updated : prev;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally runs only on mount
 
   // Focus Timer Actions
   const startFocusTimer = (taskId: string) => {
@@ -222,6 +274,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
         if (window.electronAPI) {
           await window.electronAPI.addFocusSession(session);
+        } else {
+          lsService.addFocusSession(session);
         }
         sessionStartTimeRef.current = null;
       }
@@ -272,6 +326,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const saved = await window.electronAPI.createTask(newTask);
       setTasks(prev => [saved, ...prev]);
     } else {
+      lsService.createTask(newTask);
       setTasks(prev => [newTask, ...prev]);
     }
     refreshData();
@@ -280,6 +335,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateTask = async (task: Task) => {
     if (window.electronAPI) {
       await window.electronAPI.updateTask(task);
+    } else {
+      lsService.updateTask(task);
     }
     setTasks(prev => prev.map(t => t.id === task.id ? task : t));
     refreshData();
@@ -295,6 +352,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteTask = async (id: string) => {
     if (window.electronAPI) {
       await window.electronAPI.deleteTask(id);
+    } else {
+      lsService.deleteTask(id);
     }
     setTasks(prev => prev.filter(t => t.id !== id));
     if (activeTaskId === id) {
@@ -331,6 +390,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     if (window.electronAPI) {
       await window.electronAPI.createMission(newMission);
+    } else {
+      lsService.createMission(newMission);
     }
     refreshData();
   };
@@ -338,6 +399,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteMission = async (id: string) => {
     if (window.electronAPI) {
       await window.electronAPI.deleteMission(id);
+    } else {
+      lsService.deleteMission(id);
     }
     refreshData();
   };
@@ -355,6 +418,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     if (window.electronAPI) {
       await window.electronAPI.createHabit(newHabit);
+    } else {
+      lsService.createHabit(newHabit);
     }
     refreshData();
   };
@@ -362,6 +427,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const toggleHabit = async (id: string) => {
     if (window.electronAPI) {
       const res = await window.electronAPI.toggleHabitToday(id);
+      if (res.completed) {
+        confetti({ particleCount: 50, spread: 60 });
+      }
+    } else {
+      const res = lsService.toggleHabitToday(id);
       if (res.completed) {
         confetti({ particleCount: 50, spread: 60 });
       }
@@ -375,7 +445,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const newSettings = await window.electronAPI.updateSetting(key, value);
       setSettings(newSettings);
     } else {
-      setSettings(prev => ({ ...prev, [key]: value }));
+      const newSettings = lsService.updateSetting(key, value);
+      setSettings(newSettings);
     }
   };
 
