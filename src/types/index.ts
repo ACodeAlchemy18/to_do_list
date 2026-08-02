@@ -41,6 +41,9 @@ export interface Habit {
   last_completed_date?: string | null;
   created_at: string;
   completed_today?: boolean;
+  // Days of the week this habit should be tracked, e.g. ['Mon','Wed','Fri']
+  // Empty array or undefined means every day
+  target_days?: string[];
 }
 
 export interface HabitLog {

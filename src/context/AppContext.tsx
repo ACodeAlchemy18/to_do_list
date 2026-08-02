@@ -55,8 +55,9 @@ interface AppContextType {
   deleteMission: (id: string) => Promise<void>;
 
   // Habit Actions
-  createHabit: (title: string, icon: string, color: string) => Promise<void>;
+  createHabit: (title: string, icon: string, color: string, targetDays: string[]) => Promise<void>;
   toggleHabit: (id: string) => Promise<void>;
+  deleteHabit: (id: string) => Promise<void>;
 
   // Settings Actions
   updateSetting: (key: keyof Settings, value: any) => Promise<void>;
@@ -406,7 +407,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Habits
-  const createHabit = async (title: string, icon: string, color: string) => {
+  const createHabit = async (title: string, icon: string, color: string, targetDays: string[]) => {
     const newHabit: Habit = {
       id: `h_${Date.now()}`,
       title,
@@ -415,12 +416,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       streak_count: 0,
       best_streak: 0,
       created_at: new Date().toISOString(),
+      target_days: targetDays,
     };
     if (window.electronAPI) {
       await window.electronAPI.createHabit(newHabit);
     } else {
       lsService.createHabit(newHabit);
     }
+    refreshData();
+  };
+
+  const deleteHabit = async (id: string) => {
+    if (window.electronAPI) {
+      // Electron: call API if it supports it, otherwise use localStorage fallback
+      if ((window.electronAPI as any).deleteHabit) {
+        await (window.electronAPI as any).deleteHabit(id);
+      } else {
+        lsService.deleteHabit(id);
+      }
+    } else {
+      lsService.deleteHabit(id);
+    }
+    setHabits(prev => prev.filter(h => h.id !== id));
     refreshData();
   };
 
@@ -524,6 +541,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteMission,
         createHabit,
         toggleHabit,
+        deleteHabit,
         updateSetting,
         toggleAlwaysOnTop,
         toggleWidgetMode,

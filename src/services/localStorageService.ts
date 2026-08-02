@@ -121,6 +121,14 @@ export function createHabit(habit: Habit): Habit {
   return habit;
 }
 
+export function deleteHabit(id: string): void {
+  const habits = load<Habit[]>(KEYS.HABITS, []).filter(h => h.id !== id);
+  save(KEYS.HABITS, habits);
+  // Also remove all logs for this habit
+  const logs = load<HabitLog[]>(KEYS.HABIT_LOGS, []).filter(l => l.habit_id !== id);
+  save(KEYS.HABIT_LOGS, logs);
+}
+
 export function toggleHabitToday(id: string): { completed: boolean } {
   const logs = load<HabitLog[]>(KEYS.HABIT_LOGS, []);
   const habits = load<Habit[]>(KEYS.HABITS, []);
